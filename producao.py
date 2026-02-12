@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 
 import pandas as pd
 import streamlit as st
+import streamlit.components.v1 as components
 import firebase_store
 
 st.set_page_config(layout="wide", page_title="Controle de Producao")
@@ -18,7 +19,7 @@ PECAS_POR_GRADE = 6
 STATUS_FLUXO = ["1. Corte", "2. Costura", "3. Acabamento", "4. Finalizado"]
 CORES = ["Preto", "Cinza", "Azul", "Azul Marinho", "Azul BB", "Azul Royal", "Vermelho", "Branco"]
 COLUNAS_CORES = [f"Cor_{c.replace(' ', '_')}" for c in CORES]
-COLUNAS_BASE = ["ID", "Pedido", "Cliente", "Modelo", "Qtd", "Status", "Entrada", "PrazoFinalizacao"]
+COLUNAS_BASE = ["ID", "Pedido", "Cliente", "Modelo", "Qtd", "Status", "Entrada", "PrazoFinalizacao", "ResponsavelLancamento"]
 COLUNAS_EVENTOS = [
     "DataHora",
     "Data",
@@ -35,6 +36,7 @@ COLUNAS_EVENTOS = [
     "Detalhes",
 ]
 COLUNAS_USUARIOS = ["Usuario", "SenhaHash", "Perfil", "Ativo"]
+LIMITE_EVENTOS_FIREBASE = 3000
 
 
 def aplicar_estilo():
@@ -267,7 +269,7 @@ def carregar_usuarios():
             columns=COLUNAS_USUARIOS,
         )
         if firebase_store.is_enabled():
-            firebase_store.save_collection_df(COLECAO_USUARIOS, df)
+            firebase_store.save_collection_df(COLECAO_USUARIOS, df, key_field="Usuario")
         else:
             df.to_csv(ARQUIVO_USUARIOS, index=False)
 
@@ -311,7 +313,7 @@ def render_login_sidebar():
                 usuario = st.text_input("Usuario")
                 senha = st.text_input("Senha", type="password")
                 entrar = st.form_submit_button("Entrar")
-            st.caption("Padrao: admin/admin123 (editor) | consulta/consulta123 (visualizador)")
+            st.caption("Usuarios ativos: lucas, marcos, vitor, lucas_ti")
             if entrar:
                 auth = autenticar(usuario, senha)
                 if auth is None:
@@ -374,8 +376,33 @@ def assinatura_arquivos():
     return tuple(itens)
 
 
-@st.fragment(run_every="2s")
+@st.fragment(run_every="4s")
 def monitorar_alteracoes():
+    # Em Firebase/Render, monitora mudanca real no ultimo evento.
+    # So atualiza quando houver nova manipulacao.
+    if firebase_store.is_enabled():
+        token_atual = firebase_store.get_latest_field_value(COLECAO_EVENTOS, "DataHora")
+        if "firebase_evento_token" not in st.session_state:
+            st.session_state["firebase_evento_token"] = token_atual
+            return
+        if token_atual != st.session_state["firebase_evento_token"]:
+            st.session_state["firebase_evento_token"] = token_atual
+            st.rerun()
+        # Fallback para manter sincronismo entre abas/sessoes sem F5 manual.
+        components.html(
+            """
+            <script>
+              setTimeout(function() {
+                window.parent.location.reload();
+              }, 12000);
+            </script>
+            """,
+            height=0,
+            width=0,
+        )
+        st.empty()
+        return
+
     assinatura_atual = assinatura_arquivos()
     if "assinatura_arquivos" not in st.session_state:
         st.session_state["assinatura_arquivos"] = assinatura_atual
@@ -391,7 +418,7 @@ def monitorar_alteracoes():
 
 def salvar_dados(df):
     if firebase_store.is_enabled():
-        firebase_store.save_collection_df(COLECAO_DADOS, df)
+        firebase_store.save_collection_df(COLECAO_DADOS, df, key_field="ID")
     else:
         df.to_csv(ARQUIVO_DADOS, index=False)
 
@@ -437,10 +464,15 @@ def carregar_dados():
 
 def carregar_eventos():
     if firebase_store.is_enabled():
-        df = firebase_store.load_collection_df(COLECAO_EVENTOS, COLUNAS_EVENTOS)
+        df = firebase_store.load_collection_df(
+            COLECAO_EVENTOS,
+            COLUNAS_EVENTOS,
+            order_by="DataHora",
+            descending=True,
+            limit=LIMITE_EVENTOS_FIREBASE,
+        )
         if df.empty:
             df = pd.DataFrame(columns=COLUNAS_EVENTOS)
-            firebase_store.save_collection_df(COLECAO_EVENTOS, df)
             return df
     else:
         if not os.path.exists(ARQUIVO_EVENTOS):
@@ -455,6 +487,8 @@ def carregar_eventos():
     df["ModeloID"] = pd.to_numeric(df["ModeloID"], errors="coerce").fillna(0).astype(int)
     df["Grades"] = pd.to_numeric(df["Grades"], errors="coerce").fillna(0).astype(int)
     df["Qtd"] = pd.to_numeric(df["Qtd"], errors="coerce").fillna(0).astype(int)
+    if "DataHora" in df.columns:
+        df = df.sort_values(by="DataHora", ascending=False, kind="stable").reset_index(drop=True)
     return df
 
 
@@ -470,10 +504,9 @@ def registrar_evento(
     qtd=0,
     detalhes="",
 ):
-    eventos = carregar_eventos()
     agora = datetime.now()
     novo = {
-        "DataHora": agora.strftime("%Y-%m-%d %H:%M:%S"),
+        "DataHora": agora.strftime("%Y-%m-%d %H:%M:%S.%f"),
         "Data": agora.strftime("%Y-%m-%d"),
         "Hora": agora.strftime("%H:%M:%S"),
         "Pedido": int(pedido) if pedido else 0,
@@ -487,10 +520,11 @@ def registrar_evento(
         "Qtd": int(qtd),
         "Detalhes": str(detalhes),
     }
-    eventos = pd.concat([eventos, pd.DataFrame([novo])], ignore_index=True)
     if firebase_store.is_enabled():
-        firebase_store.save_collection_df(COLECAO_EVENTOS, eventos)
+        firebase_store.append_document(COLECAO_EVENTOS, novo)
     else:
+        eventos = carregar_eventos()
+        eventos = pd.concat([eventos, pd.DataFrame([novo])], ignore_index=True)
         eventos.to_csv(ARQUIVO_EVENTOS, index=False)
 
 
@@ -678,7 +712,7 @@ def atualizar_modelo(id_modelo, cliente, modelo, cores):
     st.rerun()
 
 
-def adicionar_modelo_ao_pedido(pedido_id, cliente, status, entrada, prazo_finalizacao, modelo, cores):
+def adicionar_modelo_ao_pedido(pedido_id, cliente, status, entrada, prazo_finalizacao, responsavel_lancamento, modelo, cores):
     df = carregar_dados()
     novo_id = int(df["ID"].max() + 1) if not df.empty else 1
     total_grades = int(sum(int(v) for v in cores.values()))
@@ -692,6 +726,7 @@ def adicionar_modelo_ao_pedido(pedido_id, cliente, status, entrada, prazo_finali
         "Status": status,
         "Entrada": entrada,
         "PrazoFinalizacao": prazo_finalizacao,
+        "ResponsavelLancamento": responsavel_lancamento,
         **{k: int(v) for k, v in cores.items()},
     }
     df = pd.concat([df, pd.DataFrame([novo])], ignore_index=True)
@@ -834,6 +869,7 @@ with st.sidebar:
                         "Status": STATUS_FLUXO[0],
                         "Entrada": entrada,
                         "PrazoFinalizacao": prazo_finalizacao,
+                        "ResponsavelLancamento": str(st.session_state.get("usuario", "")),
                         **item["Grades"],
                     }
                 )
@@ -913,6 +949,8 @@ with abas[0]:
 
                 card = st.container(border=True)
                 card.markdown(f"**Pedido #{pedido_id}**")
+                responsavel_lancamento = str(principal.get("ResponsavelLancamento", "")).strip() or "-"
+                card.caption(f"Lancado por: {responsavel_lancamento}")
                 card.caption(f"Cliente: {principal['Cliente']}")
                 card.caption(f"{len(grupo)} modelo(s) | {total_grades} grade(s) | {total_pecas} peca(s)")
                 card.progress(progresso_status(status_chave))
@@ -1079,6 +1117,8 @@ with abas[0]:
                                     status=str(principal["Status"]),
                                     entrada=str(principal["Entrada"]),
                                     prazo_finalizacao=str(principal.get("PrazoFinalizacao", gerar_prazo_padrao())),
+                                    responsavel_lancamento=str(principal.get("ResponsavelLancamento", "")).strip()
+                                    or str(st.session_state.get("usuario", "")),
                                     modelo=add_modelo,
                                     cores=add_cores,
                                 )
@@ -1091,6 +1131,8 @@ with abas[1]:
         if eventos.empty:
             st.info("Ainda nao existem eventos para relatorio.")
         else:
+            if firebase_store.is_enabled():
+                st.caption(f"Modo performance ativo: exibindo ate {LIMITE_EVENTOS_FIREBASE} eventos mais recentes.")
             d1 = pd.to_datetime(eventos["Data"], errors="coerce")
             min_data = d1.min().date() if not d1.isna().all() else datetime.now().date()
             max_data = d1.max().date() if not d1.isna().all() else datetime.now().date()
@@ -1118,7 +1160,15 @@ with abas[1]:
                 tabela = ev[
                     ["DataHora", "Pedido", "ModeloID", "Cliente", "Modelo", "Acao", "StatusAntes", "StatusDepois", "Grades", "Qtd", "Detalhes"]
                 ].sort_values(by="DataHora", ascending=False)
-                st.dataframe(tabela, use_container_width=True, hide_index=True)
+                total_linhas = len(tabela)
+                colp1, colp2 = st.columns(2)
+                por_pagina = int(colp1.selectbox("Linhas por pagina", [50, 100, 200], index=1))
+                total_paginas = max(1, (total_linhas + por_pagina - 1) // por_pagina)
+                pagina = int(colp2.number_input("Pagina", min_value=1, max_value=total_paginas, value=1, step=1))
+                ini = (pagina - 1) * por_pagina
+                fim = ini + por_pagina
+                st.caption(f"Mostrando {min(fim, total_linhas)} de {total_linhas} evento(s).")
+                st.dataframe(tabela.iloc[ini:fim], use_container_width=True, hide_index=True)
 
     with abas_rel[1]:
         st.info("Espaco reservado para futuros relatorios.")
