@@ -4,7 +4,6 @@ from datetime import datetime, timedelta
 
 import pandas as pd
 import streamlit as st
-import streamlit.components.v1 as components
 import firebase_store
 
 st.set_page_config(layout="wide", page_title="Controle de Producao")
@@ -388,18 +387,6 @@ def monitorar_alteracoes():
         if token_atual != st.session_state["firebase_evento_token"]:
             st.session_state["firebase_evento_token"] = token_atual
             st.rerun()
-        # Fallback para manter sincronismo entre abas/sessoes sem F5 manual.
-        components.html(
-            """
-            <script>
-              setTimeout(function() {
-                window.parent.location.reload();
-              }, 12000);
-            </script>
-            """,
-            height=0,
-            width=0,
-        )
         st.empty()
         return
 
