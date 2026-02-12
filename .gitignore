@@ -1,0 +1,14 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Local data files
+producao.csv
+producao_eventos.csv
+usuarios.csv
+
+# Secrets
+*.json
+!render.yaml
+
