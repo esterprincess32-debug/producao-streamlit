@@ -764,6 +764,47 @@ def resumo_relatorio_producao(df_atual, eventos_filtrados):
     return "\n".join(texto)
 
 
+def tabela_pedidos_finalizados(eventos_filtrados):
+    colunas_saida = ["Pedido", "Cliente", "Lancado em", "Finalizado em", "Tempo ate finalizar", "Confirmacao"]
+    if eventos_filtrados.empty:
+        return pd.DataFrame(columns=colunas_saida)
+
+    ev = eventos_filtrados.copy()
+    ev["DataHora_dt"] = pd.to_datetime(ev["DataHora"], errors="coerce")
+
+    lanc = ev[ev["Acao"] == "LANCAR_PEDIDO"][["Pedido", "Cliente", "DataHora_dt"]].copy()
+    fin = ev[ev["Acao"] == "FINALIZAR_PEDIDO"][["Pedido", "Cliente", "DataHora_dt"]].copy()
+    if fin.empty:
+        return pd.DataFrame(columns=colunas_saida)
+
+    lanc_agg = (
+        lanc.sort_values("DataHora_dt")
+        .groupby("Pedido", as_index=False)
+        .agg({"Cliente": "first", "DataHora_dt": "first"})
+        .rename(columns={"Cliente": "Cliente_lanc", "DataHora_dt": "Lancado_dt"})
+    )
+    fin_agg = (
+        fin.sort_values("DataHora_dt")
+        .groupby("Pedido", as_index=False)
+        .agg({"Cliente": "first", "DataHora_dt": "first"})
+        .rename(columns={"Cliente": "Cliente_fin", "DataHora_dt": "Finalizado_dt"})
+    )
+
+    out = fin_agg.merge(lanc_agg, on="Pedido", how="left")
+    out["Cliente"] = out["Cliente_fin"].fillna(out["Cliente_lanc"]).fillna("-")
+    out["Lancado em"] = out["Lancado_dt"].dt.strftime("%d/%m/%Y %H:%M").fillna("-")
+    out["Finalizado em"] = out["Finalizado_dt"].dt.strftime("%d/%m/%Y %H:%M").fillna("-")
+
+    delta = out["Finalizado_dt"] - out["Lancado_dt"]
+    horas = (delta.dt.total_seconds() / 3600).round(1)
+    out["Tempo ate finalizar"] = horas.apply(lambda h: f"{h}h" if pd.notna(h) and h >= 0 else "-")
+    out["Confirmacao"] = "Finalizado"
+
+    out = out[["Pedido", "Cliente", "Lancado em", "Finalizado em", "Tempo ate finalizar", "Confirmacao"]]
+    out = out.sort_values(by="Finalizado em", ascending=False, kind="stable").reset_index(drop=True)
+    return out
+
+
 aplicar_estilo()
 inicializar_sessao_acesso()
 st.markdown(
@@ -1142,6 +1183,13 @@ with abas[1]:
 
                 st.markdown("**Resumo inteligente da producao**")
                 st.markdown(resumo_relatorio_producao(df_atual, ev))
+
+                st.markdown("**Pedidos finalizados (com data de lancamento e finalizacao)**")
+                tabela_finalizados = tabela_pedidos_finalizados(ev)
+                if tabela_finalizados.empty:
+                    st.caption("Nenhum pedido finalizado no periodo selecionado.")
+                else:
+                    st.dataframe(tabela_finalizados, use_container_width=True, hide_index=True)
 
                 st.markdown("**Historico de eventos (separacao ate arquivamento/exclusao)**")
                 tabela = ev[
