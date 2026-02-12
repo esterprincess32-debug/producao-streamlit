@@ -61,13 +61,17 @@ def aplicar_estilo():
 
           .block-container {
             max-width: 100%;
-            padding-top: 0.6rem;
-            padding-bottom: 0.5rem;
+            padding-top: 0.3rem;
+            padding-bottom: 0.3rem;
+            padding-left: 0.65rem;
+            padding-right: 0.65rem;
           }
 
           [data-testid="stSidebar"] {
             background: linear-gradient(180deg, #0f1c2f 0%, #15253d 100%);
             border-right: 1px solid rgba(255,255,255,0.08);
+            min-width: 250px !important;
+            max-width: 250px !important;
           }
 
           [data-testid="stSidebar"] * {
@@ -166,41 +170,41 @@ def aplicar_estilo():
           .hero-box {
             border: 1px solid #dbe4f3;
             background: linear-gradient(135deg, #ffffff 0%, #eef4ff 100%);
-            border-radius: 16px;
-            padding: 14px 16px;
-            margin-bottom: 8px;
+            border-radius: 10px;
+            padding: 8px 10px;
+            margin-bottom: 4px;
           }
 
           .hero-title {
             margin: 0;
-            font-size: 1.25rem;
+            font-size: 1rem;
             font-weight: 800;
             color: #12213a;
           }
 
           .hero-sub {
-            margin: 4px 0 0 0;
+            margin: 2px 0 0 0;
             color: #4d5f7d;
-            font-size: 0.92rem;
+            font-size: 0.78rem;
             font-weight: 500;
           }
 
           .kpi-card {
             border: 1px solid #d8e0ef;
-            border-radius: 14px;
-            padding: 10px 12px;
+            border-radius: 10px;
+            padding: 7px 9px;
             background: #ffffff;
           }
 
           .kpi-label {
-            font-size: 12px;
+            font-size: 11px;
             color: #5d6f8c;
             font-weight: 700;
             margin: 0;
           }
 
           .kpi-value {
-            font-size: 22px;
+            font-size: 17px;
             color: #13223b;
             font-weight: 800;
             margin: 0;
@@ -209,6 +213,8 @@ def aplicar_estilo():
           [data-testid="stVerticalBlock"] [data-testid="stMarkdownContainer"] h3 {
             color: #172a45;
             font-weight: 800;
+            font-size: 0.9rem;
+            margin: 0.2rem 0;
           }
 
           [data-testid="stButton"] button {
@@ -240,7 +246,7 @@ def aplicar_estilo():
           [data-testid="stForm"] {
             border: 1px solid #e2e8f5;
             border-radius: 12px;
-            padding: 10px;
+            padding: 8px;
             background: #f9fbff;
           }
 
@@ -249,15 +255,23 @@ def aplicar_estilo():
             font-weight: 800;
           }
 
+          [data-testid="stCaptionContainer"] {
+            font-size: 0.8rem;
+          }
+
+          [data-testid="stMarkdownContainer"] p {
+            margin-bottom: 0.2rem;
+          }
+
           /* Painel em tela cheia: evita scroll da pagina inteira */
           section.main > div {
             overflow: hidden;
           }
 
           section.main div[data-testid="column"] > div[data-testid="stVerticalBlock"] {
-            max-height: 70vh;
+            max-height: 78vh;
             overflow-y: auto;
-            padding-right: 4px;
+            padding-right: 2px;
           }
 
           /* Interface mobile */
