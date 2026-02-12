@@ -50,6 +50,21 @@ def aplicar_estilo():
             color: #172133;
           }
 
+          [data-testid="stAppViewContainer"] {
+            height: 100vh;
+          }
+
+          [data-testid="stSidebarContent"] {
+            height: 100vh;
+            overflow-y: auto;
+          }
+
+          .block-container {
+            max-width: 100%;
+            padding-top: 0.6rem;
+            padding-bottom: 0.5rem;
+          }
+
           [data-testid="stSidebar"] {
             background: linear-gradient(180deg, #0f1c2f 0%, #15253d 100%);
             border-right: 1px solid rgba(255,255,255,0.08);
@@ -232,6 +247,59 @@ def aplicar_estilo():
           [data-testid="stMetricValue"] {
             color: #14284a;
             font-weight: 800;
+          }
+
+          /* Painel em tela cheia: evita scroll da pagina inteira */
+          section.main > div {
+            overflow: hidden;
+          }
+
+          section.main div[data-testid="column"] > div[data-testid="stVerticalBlock"] {
+            max-height: 70vh;
+            overflow-y: auto;
+            padding-right: 4px;
+          }
+
+          /* Interface mobile */
+          @media (max-width: 900px) {
+            .block-container {
+              padding-top: 0.35rem;
+              padding-left: 0.5rem;
+              padding-right: 0.5rem;
+            }
+
+            .hero-box {
+              padding: 10px 12px;
+              border-radius: 12px;
+            }
+
+            .hero-title {
+              font-size: 1.02rem;
+            }
+
+            .hero-sub {
+              font-size: 0.82rem;
+            }
+
+            [data-testid="stMetricValue"] {
+              font-size: 1.25rem !important;
+            }
+
+            [data-testid="stButton"] button {
+              min-height: 42px;
+              font-size: 0.95rem;
+            }
+
+            section.main div[data-testid="column"] {
+              min-width: 100% !important;
+              flex: 1 1 100% !important;
+            }
+
+            section.main div[data-testid="column"] > div[data-testid="stVerticalBlock"] {
+              max-height: none;
+              overflow-y: visible;
+              padding-right: 0;
+            }
           }
         </style>
         """,
