@@ -821,6 +821,15 @@ def contador_producao_dia(eventos):
     return int(df["Qtd"].sum()) if not df.empty else 0
 
 
+def eventos_de_finalizacao(eventos_df):
+    if eventos_df.empty:
+        return eventos_df.copy()
+    return eventos_df[
+        ((eventos_df["Acao"] == "FINALIZAR_PEDIDO"))
+        | ((eventos_df["Acao"] == "MOVER_STATUS") & (eventos_df["StatusDepois"] == "4. Finalizado"))
+    ].copy()
+
+
 def resumo_relatorio_producao(df_atual, eventos_filtrados):
     status_idx = {s: i for i, s in enumerate(STATUS_FLUXO)}
     movimentos = eventos_filtrados[eventos_filtrados["Acao"] == "MOVER_STATUS"].copy()
@@ -834,7 +843,7 @@ def resumo_relatorio_producao(df_atual, eventos_filtrados):
 
     # Historico no periodo selecionado (sobe mesmo apos arquivar/excluir)
     lancados_periodo = int((eventos_filtrados["Acao"] == "LANCAR_PEDIDO").sum())
-    finalizados_periodo = int((eventos_filtrados["Acao"] == "FINALIZAR_PEDIDO").sum())
+    finalizados_periodo = int(eventos_de_finalizacao(eventos_filtrados)["Pedido"].nunique())
     arquivados = int((eventos_filtrados["Acao"] == "ARQUIVAR_PEDIDO").sum())
     pendentes_periodo = max(lancados_periodo - finalizados_periodo - arquivados, 0)
 
@@ -855,7 +864,7 @@ def tabela_pedidos_finalizados(eventos_filtrados):
     ev["DataHora_dt"] = pd.to_datetime(ev["DataHora"], errors="coerce")
 
     lanc = ev[ev["Acao"] == "LANCAR_PEDIDO"][["Pedido", "Cliente", "DataHora_dt"]].copy()
-    fin = ev[ev["Acao"] == "FINALIZAR_PEDIDO"][["Pedido", "Cliente", "DataHora_dt"]].copy()
+    fin = eventos_de_finalizacao(ev)[["Pedido", "Cliente", "DataHora_dt"]].copy()
     if fin.empty:
         return pd.DataFrame(columns=colunas_saida)
 
@@ -1056,34 +1065,61 @@ with abas[0]:
                 principal = grupo.iloc[0]
                 total_grades = int(sum(total_grades_row(r) for _, r in grupo.iterrows()))
                 total_pecas = int(grupo["Qtd"].sum())
+                titulo_cliente = str(principal["Cliente"]).strip() or f"Pedido #{pedido_id}"
+                resumo = f"{total_pecas} peca(s)"
+                anterior = status_anterior(status_chave)
+                proximo = proximo_status(status_chave)
+                pode_pronto_este_pedido = pode_mover_pronto(status_chave)
 
-                card = st.container(border=True)
-                card.markdown(f"**Pedido #{pedido_id}**")
-                responsavel_lancamento = str(principal.get("ResponsavelLancamento", "")).strip() or "-"
-                card.caption(f"Lancado por: {responsavel_lancamento}")
-                card.caption(f"Cliente: {principal['Cliente']}")
-                card.caption(f"{len(grupo)} modelo(s) | {total_grades} grade(s) | {total_pecas} peca(s)")
-                card.progress(progresso_status(status_chave))
-                card.caption(f"Entrada: {principal['Entrada']}")
-                card.caption(f"Prazo para finalizar: {prazo_legivel(principal.get('PrazoFinalizacao', ''))}")
-                if pedido_vencido(grupo):
-                    card.error("Prazo vencido para finalizar este pedido.")
+                linha_cols = st.columns([4, 1])
+                with linha_cols[0]:
+                    with st.expander(f"{titulo_cliente}  |  {resumo}", expanded=False):
+                        card = st.container(border=True)
+                        card.markdown(f"**Pedido #{pedido_id}**")
+                        responsavel_lancamento = str(principal.get("ResponsavelLancamento", "")).strip() or "-"
+                        card.caption(f"Lancado por: {responsavel_lancamento}")
+                        card.caption(f"Cliente: {principal['Cliente']}")
+                        card.caption(f"{len(grupo)} modelo(s) | {total_grades} grade(s) | {total_pecas} peca(s)")
+                        card.progress(progresso_status(status_chave))
+                        card.caption(f"Entrada: {principal['Entrada']}")
+                        card.caption(f"Prazo para finalizar: {prazo_legivel(principal.get('PrazoFinalizacao', ''))}")
+                        if pedido_vencido(grupo):
+                            card.error("Prazo vencido para finalizar este pedido.")
 
-                card.markdown("**Modelos:**")
-                for _, item in grupo.iterrows():
-                    item_id = int(item["ID"])
-                    model_cols = card.columns([5, 1])
-                    model_cols[0].markdown(f"**{item['Modelo']}**")
-                    if model_cols[1].button(
-                        "X",
-                        key=f"del_model_{item_id}",
-                        help="Excluir modelo",
-                        disabled=not pode_editar,
-                    ):
-                        deletar_modelo(item_id)
-                    for linha_cor in linhas_cores(item):
-                        card.caption(linha_cor)
-                    card.caption(f"Total: {total_grades_row(item)} grade(s) | {int(item['Qtd'])} peca(s)")
+                        card.markdown("**Modelos:**")
+                        for _, item in grupo.iterrows():
+                            item_id = int(item["ID"])
+                            model_cols = card.columns([5, 1])
+                            model_cols[0].markdown(f"**{item['Modelo']}**")
+                            if model_cols[1].button(
+                                "X",
+                                key=f"del_model_{item_id}",
+                                help="Excluir modelo",
+                                disabled=not pode_editar,
+                            ):
+                                deletar_modelo(item_id)
+                            for linha_cor in linhas_cores(item):
+                                card.caption(linha_cor)
+                            card.caption(f"Total: {total_grades_row(item)} grade(s) | {int(item['Qtd'])} peca(s)")
+
+                with linha_cols[1]:
+                    if proximo:
+                        texto_botao = "Finalizar" if proximo == STATUS_FLUXO[-1] else "Pronto"
+                        if st.button(
+                            texto_botao,
+                            key=f"quick_mv_{pedido_id}",
+                            use_container_width=True,
+                            disabled=not pode_pronto_este_pedido,
+                        ):
+                            mover_pedido(int(pedido_id), proximo)
+                    else:
+                        if st.button(
+                            "Arquivar",
+                            key=f"quick_del_{pedido_id}",
+                            use_container_width=True,
+                            disabled=not pode_editar,
+                        ):
+                            deletar_pedido(int(pedido_id))
 
                 edit_open_key = f"edit_open_{pedido_id}"
                 add_open_key = f"add_open_{pedido_id}"
@@ -1094,8 +1130,6 @@ with abas[0]:
 
                 btn_top_l, btn_top_r = card.columns(2)
                 btn_bot_l, btn_bot_r = card.columns(2)
-                anterior = status_anterior(status_chave)
-                proximo = proximo_status(status_chave)
 
                 if anterior:
                     if btn_top_l.button(
@@ -1108,7 +1142,6 @@ with abas[0]:
                 else:
                     btn_top_l.write("")
 
-                pode_pronto_este_pedido = pode_mover_pronto(status_chave)
                 if proximo:
                     texto_botao = "Finalizar" if proximo == STATUS_FLUXO[-1] else "Pronto"
                     if btn_top_r.button(
@@ -1262,6 +1295,7 @@ with abas[1]:
                 c2.metric("Modelos lancados", int((ev["Acao"] == "LANCAR_MODELO").sum()))
                 c3.metric("Pecas finalizadas", int(ev[(ev["Acao"] == "MOVER_STATUS") & (ev["StatusDepois"] == "4. Finalizado")]["Qtd"].sum()))
                 c4.metric("Exclusoes", int(((ev["Acao"] == "EXCLUIR_MODELO") | (ev["Acao"] == "ARQUIVAR_PEDIDO")).sum()))
+                st.caption(f"Pedidos finalizados no periodo: {int(eventos_de_finalizacao(ev)['Pedido'].nunique())}")
 
                 st.markdown("**Resumo inteligente da producao**")
                 st.markdown(resumo_relatorio_producao(df_atual, ev))
@@ -1272,6 +1306,40 @@ with abas[1]:
                     st.caption("Nenhum pedido finalizado no periodo selecionado.")
                 else:
                     st.dataframe(tabela_finalizados, use_container_width=True, hide_index=True)
+
+                st.markdown("**Pedidos arquivados (clique no cliente para ver detalhes)**")
+                ev_arquivados = ev[ev["Acao"] == "ARQUIVAR_PEDIDO"].copy()
+                if ev_arquivados.empty:
+                    st.caption("Nenhum pedido arquivado no periodo selecionado.")
+                else:
+                    ev_arquivados = ev_arquivados.sort_values(by="DataHora", ascending=False, kind="stable")
+                    for _, arq in ev_arquivados.iterrows():
+                        pedido_arq = int(arq["Pedido"])
+                        cliente_arq = str(arq["Cliente"]).strip() or "-"
+                        data_arq = str(arq["DataHora"])[:16].replace("-", "/")
+                        qtd_arq = int(arq["Qtd"]) if str(arq["Qtd"]).strip() else 0
+                        grades_arq = int(arq["Grades"]) if str(arq["Grades"]).strip() else 0
+                        titulo = f"{cliente_arq} | Pedido #{pedido_arq} | {qtd_arq} peca(s)"
+                        with st.expander(titulo, expanded=False):
+                            st.caption(f"Arquivado em: {data_arq}")
+                            st.caption(f"Quantidade total: {qtd_arq} peca(s) | {grades_arq} grade(s)")
+                            st.caption(f"Status anterior: {str(arq.get('StatusAntes', '-'))}")
+                            detalhes = str(arq.get("Detalhes", "")).strip()
+                            if detalhes:
+                                st.caption(f"Observacao: {detalhes}")
+
+                            hist_pedido = ev[
+                                (ev["Pedido"] == pedido_arq)
+                                & (ev["Acao"].isin(["LANCAR_MODELO", "ADICIONAR_MODELO", "EDITAR_MODELO", "EXCLUIR_MODELO"]))
+                            ][["DataHora", "Modelo", "Acao", "Grades", "Qtd", "Detalhes"]].copy()
+                            if hist_pedido.empty:
+                                st.caption("Sem historico de modelos disponivel para este pedido no periodo filtrado.")
+                            else:
+                                st.dataframe(
+                                    hist_pedido.sort_values(by="DataHora", ascending=False),
+                                    use_container_width=True,
+                                    hide_index=True,
+                                )
 
                 st.markdown("**Historico de eventos (separacao ate arquivamento/exclusao)**")
                 tabela = ev[
