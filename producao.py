@@ -633,13 +633,25 @@ def aplicar_estilo_dashboard():
             margin: 2px 0 0 0;
           }
           .dash2-item-line {
-            color: #385a86;
-            font-size: 0.74rem;
-            font-weight: 600;
-            margin: 2px 0 0 0;
+            color: #24466f;
+            font-size: 0.76rem;
+            font-weight: 700;
+            margin: 6px 0 2px 0;
+            background: #ffffff;
+            border: 1px solid #dbe6f8;
+            border-radius: 10px;
+            padding: 6px 10px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            align-items: center;
           }
           .dash2-item-line b {
             color: #143963;
+            font-weight: 800;
+          }
+          .dash2-divider {
+            color: #9ab0cc;
             font-weight: 800;
           }
           .dash2-badge {
@@ -802,6 +814,7 @@ def render_login_sidebar():
                 """,
                 unsafe_allow_html=True,
             )
+            st.caption("Fonte de dados: Firebase" if firebase_store.is_enabled() else "Fonte de dados: CSV local")
         else:
             st.markdown(
                 f"""
@@ -1398,6 +1411,7 @@ def render_dashboard_detalhado(df_atual, eventos, agora):
         """,
         unsafe_allow_html=True,
     )
+    st.caption("Fonte de dados: Firebase" if firebase_store.is_enabled() else "Fonte de dados: CSV local")
     prod_hoje = contador_producao_dia(eventos)
     pedidos_abertos = int(df_atual[df_atual["Status"] != "4. Finalizado"]["Pedido"].nunique())
     pedidos_finalizados = int(df_atual[df_atual["Status"] == "4. Finalizado"]["Pedido"].nunique())
@@ -1432,7 +1446,8 @@ def render_dashboard_detalhado(df_atual, eventos, agora):
 
     for status_chave, (coluna_st, titulo_visual) in fases.items():
         with coluna_st:
-            pedidos_fase = df_atual[df_atual["Status"].astype(str).str.strip() == str(status_chave).strip()]
+            status_norm = df_atual["Status"].astype(str).str.strip().str.lower()
+            pedidos_fase = df_atual[status_norm == str(status_chave).strip().lower()]
             total_pedidos_etapa = int(pedidos_fase["Pedido"].nunique()) if not pedidos_fase.empty else 0
             st.markdown(
                 f"""
@@ -1593,28 +1608,45 @@ def render_dashboard_visual(df_atual, eventos):
                     responsavel_lancamento = str(principal.get("ResponsavelLancamento", "")).strip() or "-"
                     cliente_info = str(principal.get("Cliente", "-")).strip() or "-"
                     num_info = str(principal.get("NumeroCliente", "-")).strip() or "-"
-                    obs_info = str(principal.get("Observacao", "")).strip()
+                    obs_info = observacao_legivel(principal.get("Observacao", ""))
 
                     st.markdown(
-                        f"**Cliente:** {cliente_info}  |  **Prazo:** {prazo_txt}  |  "
-                        f"**Lancado por:** {responsavel_lancamento}  |  **Num:** {num_info}"
+                        f"""
+                        <div class="dash2-item-line">
+                          <span><b>Cliente:</b> {cliente_info}</span>
+                          <span class="dash2-divider">•</span>
+                          <span>{prazo_badge}</span>
+                          <span class="dash2-divider">•</span>
+                          <span><b>Lancado por:</b> {responsavel_lancamento}</span>
+                          <span class="dash2-divider">•</span>
+                          <span><b>Num:</b> {num_info}</span>
+                        </div>
+                        """,
+                        unsafe_allow_html=True,
                     )
                     if obs_info:
-                        st.markdown(f"**Observacao:** {obs_info}")
+                        st.markdown(
+                            f"""
+                            <div class="dash2-item-line">
+                              <span><b>Observacao:</b> {obs_info}</span>
+                            </div>
+                            """,
+                            unsafe_allow_html=True,
+                        )
 
-                    titulo_dash = f"{titulo_cliente} | Num {num_info} | Prazo {prazo_txt}"
+                    titulo_dash = f"{titulo_cliente} | Num {num_info}"
                     with st.expander(titulo_dash, expanded=True):
                         card = st.container(border=True)
                         card.markdown(f"**Pedido #{pedido_id}**")
                         card.caption(f"Lancado por: {responsavel_lancamento}")
                         card.caption(f"Cliente: {principal['Cliente']}")
                         card.caption(f"Numero: {num_info}")
-                    if obs_info:
-                        card.caption(f"Observacao: {obs_info}")
+                        if obs_info:
+                            card.caption(f"Observacao: {obs_info}")
                         card.caption(f"{len(grupo)} modelo(s) | {total_grades} grade(s) | {total_pecas} peca(s)")
                         card.progress(progresso_status(status_chave))
                         card.caption(f"Entrada: {principal['Entrada']}")
-                        card.caption(f"Prazo para finalizar: {prazo_txt}")
+                        card.markdown(prazo_badge, unsafe_allow_html=True)
                         if pedido_vencido(grupo):
                             card.error("Prazo vencido para finalizar este pedido.")
 
@@ -1892,7 +1924,8 @@ def render_operacao(df_atual, eventos):
 
     for status_chave, (coluna_st, titulo_visual) in fases.items():
         with coluna_st:
-            pedidos_fase = df_atual[df_atual["Status"].astype(str).str.strip() == str(status_chave).strip()]
+            status_norm = df_atual["Status"].astype(str).str.strip().str.lower()
+            pedidos_fase = df_atual[status_norm == str(status_chave).strip().lower()]
             total_pedidos_etapa = int(pedidos_fase["Pedido"].nunique()) if not pedidos_fase.empty else 0
             st.markdown(
                 f"""
