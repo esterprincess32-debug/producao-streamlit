@@ -1521,7 +1521,6 @@ def render_dashboard_detalhado(df_atual, eventos, agora):
             principal = grupo.iloc[0]
             cliente_info = str(principal.get("Cliente", "-")).strip() or "-"
             num_info = str(principal.get("NumeroCliente", "-")).strip() or "-"
-            responsavel_lancamento = str(principal.get("ResponsavelLancamento", "")).strip() or "-"
             prazo_dias = dias_para_prazo(principal.get("PrazoFinalizacao", ""))
             if prazo_dias is None:
                 prazo_cls = "warn"
@@ -1536,14 +1535,25 @@ def render_dashboard_detalhado(df_atual, eventos, agora):
                 prazo_cls = "late"
                 prazo_txt = f"{prazo_dias} dia(s)"
 
+            itens = []
+            for _, item in grupo.iterrows():
+                modelo = str(item.get("Modelo", "")).strip()
+                grades = total_grades_row(item)
+                if not modelo:
+                    continue
+                itens.append(f"<li>{grades} grade(s) {modelo}</li>")
+            itens_html = "<ul class='pedido-list'>" + "".join(itens) + "</ul>" if itens else ""
+
             pedidos_html.append(
                 f"""
                 <div class="card pedido">
                   <p><strong>Cliente:</strong> {cliente_info}</p>
                   <p class="prazo {prazo_cls}">Prazo: {prazo_txt}</p>
-                  <p><strong>Lancado por:</strong> {responsavel_lancamento}</p>
                   <p><strong>Num:</strong> {num_info}</p>
-                  
+                  <details class="pedido-toggle">
+                    <summary>Ver pedido</summary>
+                    {itens_html}
+                  </details>
                 </div>
                 """
             )
@@ -1588,6 +1598,9 @@ def render_dashboard_detalhado(df_atual, eventos, agora):
       .dash-lite .prazo.ok { color: #1f9d55; font-weight: 800; }
       .dash-lite .prazo.warn { color: #d97706; font-weight: 800; }
       .dash-lite .prazo.late { color: #dc2626; font-weight: 800; }
+      .dash-lite .pedido-toggle summary { cursor: pointer; font-weight: 700; color: #1f2a44; }
+      .dash-lite .pedido-list { margin: 6px 0 0 16px; color: #334155; font-size: 13px; }
+      .dash-lite .pedido-list li { margin: 2px 0; }
       .dash-lite .pedido-item { margin-top: 10px; background: #f9fafb; padding: 10px; border-radius: 10px; border: 1px solid #e5e7eb; }
     </style>
     """
