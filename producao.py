@@ -674,29 +674,27 @@ def texto_maiusculo(valor):
 
 
 def carregar_usuarios():
+    usuarios_padrao = [
+        {"Usuario": "estoque", "SenhaHash": hash_senha("123"), "Perfil": "visualizador", "Ativo": 1},
+        {"Usuario": "vitor", "SenhaHash": hash_senha("1408"), "Perfil": "editor", "Ativo": 1},
+        {"Usuario": "lucas_ti", "SenhaHash": hash_senha("Luzineide12."), "Perfil": "editor", "Ativo": 1},
+        {"Usuario": "dashboard", "SenhaHash": hash_senha("123"), "Perfil": "dashboard", "Ativo": 1},
+    ]
+    force_sync = os.getenv("FORCE_SYNC_USERS", "").strip().lower() in ("1", "true", "yes", "on")
     if firebase_store.is_enabled():
         df = firebase_store.load_collection_df(COLECAO_USUARIOS, COLUNAS_USUARIOS)
     else:
         if not os.path.exists(ARQUIVO_USUARIOS):
             base = pd.DataFrame(
-                [
-                    {"Usuario": "admin", "SenhaHash": hash_senha("admin123"), "Perfil": "editor", "Ativo": 1},
-                    {"Usuario": "consulta", "SenhaHash": hash_senha("consulta123"), "Perfil": "visualizador", "Ativo": 1},
-                ],
+                usuarios_padrao,
                 columns=COLUNAS_USUARIOS,
             )
             base.to_csv(ARQUIVO_USUARIOS, index=False)
             return base
         df = pd.read_csv(ARQUIVO_USUARIOS)
 
-    if df.empty:
-        df = pd.DataFrame(
-            [
-                {"Usuario": "admin", "SenhaHash": hash_senha("admin123"), "Perfil": "editor", "Ativo": 1},
-                {"Usuario": "consulta", "SenhaHash": hash_senha("consulta123"), "Perfil": "visualizador", "Ativo": 1},
-            ],
-            columns=COLUNAS_USUARIOS,
-        )
+    if df.empty or force_sync:
+        df = pd.DataFrame(usuarios_padrao, columns=COLUNAS_USUARIOS)
         if firebase_store.is_enabled():
             firebase_store.save_collection_df(COLECAO_USUARIOS, df, key_field="Usuario")
         else:
