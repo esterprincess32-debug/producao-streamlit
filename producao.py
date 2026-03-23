@@ -1,10 +1,12 @@
 ﻿import os
 import json
 import hashlib
+import textwrap
 from datetime import datetime, timedelta
 
 import pandas as pd
 import streamlit as st
+import streamlit.components.v1 as components
 import firebase_store
 
 st.set_page_config(layout="wide", page_title="Controle de Producao")
@@ -670,6 +672,66 @@ def aplicar_estilo_dashboard():
             color: #a43b2b;
             background: #fff0ed;
             border-color: #f4c3bb;
+          }
+
+          .dash-lite {
+            font-family: "Segoe UI", sans-serif;
+          }
+          .dash-lite .container {
+            max-width: 720px;
+            margin: 8px auto;
+          }
+          .dash-lite .card {
+            background: #ffffff;
+            border-radius: 16px;
+            padding: 16px;
+            margin-bottom: 16px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.06);
+            border: 1px solid #e5ecf6;
+          }
+          .dash-lite .label {
+            font-size: 12px;
+            color: #64748b;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.6px;
+          }
+          .dash-lite .destaque {
+            border-left: 6px solid #3b82f6;
+          }
+          .dash-lite .destaque h1 {
+            margin: 6px 0 0 0;
+            font-size: 32px;
+          }
+          .dash-lite .section h2 {
+            font-size: 18px;
+            margin: 4px 0 10px 0;
+          }
+          .dash-lite .etapa-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-weight: 700;
+          }
+          .dash-lite .badge {
+            background: #3b82f6;
+            color: #fff;
+            padding: 4px 10px;
+            border-radius: 999px;
+            font-size: 12px;
+          }
+          .dash-lite .pedido p {
+            margin: 4px 0;
+          }
+          .dash-lite .prazo.ok { color: #1f9d55; font-weight: 800; }
+          .dash-lite .prazo.warn { color: #d97706; font-weight: 800; }
+          .dash-lite .prazo.late { color: #dc2626; font-weight: 800; }
+          .dash-lite .pedido-item {
+            margin-top: 10px;
+            background: #f9fafb;
+            padding: 10px;
+            border-radius: 10px;
+            border: 1px solid #e5e7eb;
           }
         </style>
         """,
@@ -1399,118 +1461,137 @@ def tabela_pedidos_finalizados(eventos_filtrados):
 
 
 def render_dashboard_detalhado(df_atual, eventos, agora):
-    st.markdown(
-        f"""
-        <div class="dash2-hero">
-          <div>
-            <p class="dash2-title">Painel de Acompanhamento</p>
-            <p class="dash2-sub">Visualizacao rapida do fluxo, com foco em leitura.</p>
-          </div>
-          <span class="dash2-chip">Atualizado: {agora}</span>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-    st.caption("Fonte de dados: Firebase" if firebase_store.is_enabled() else "Fonte de dados: CSV local")
     prod_hoje = contador_producao_dia(eventos)
     pedidos_abertos = int(df_atual[df_atual["Status"] != "4. Finalizado"]["Pedido"].nunique())
     pedidos_finalizados = int(df_atual[df_atual["Status"] == "4. Finalizado"]["Pedido"].nunique())
     pecas_em_aberto = int(df_atual[df_atual["Status"] != "4. Finalizado"]["Qtd"].sum()) if not df_atual.empty else 0
 
-    c1, c2, c3, c4 = st.columns(4)
-    c1.markdown(
-        f"<div class='dash2-kpi'><p class='dash2-kpi-label'>Pecas finalizadas hoje</p><p class='dash2-kpi-value'>{prod_hoje}</p></div>",
-        unsafe_allow_html=True,
-    )
-    c2.markdown(
-        f"<div class='dash2-kpi'><p class='dash2-kpi-label'>Pedidos em aberto</p><p class='dash2-kpi-value'>{pedidos_abertos}</p></div>",
-        unsafe_allow_html=True,
-    )
-    c3.markdown(
-        f"<div class='dash2-kpi'><p class='dash2-kpi-label'>Pedidos finalizados</p><p class='dash2-kpi-value'>{pedidos_finalizados}</p></div>",
-        unsafe_allow_html=True,
-    )
-    c4.markdown(
-        f"<div class='dash2-kpi'><p class='dash2-kpi-label'>Pecas em aberto</p><p class='dash2-kpi-value'>{pecas_em_aberto}</p></div>",
-        unsafe_allow_html=True,
-    )
-    st.markdown("**Etapas em andamento**")
+    status_norm = df_atual["Status"].astype(str).str.strip().str.lower()
+    etapas = [
+        (STATUS_FLUXO[0], "Separar pedido"),
+        (STATUS_FLUXO[1], "Em costura"),
+        (STATUS_FLUXO[2], "Acabamento"),
+        (STATUS_FLUXO[3], "Prontos"),
+    ]
 
-    col1, col2, col3, col4 = st.columns(4)
-    fases = {
-        STATUS_FLUXO[0]: (col1, "Separar pedido"),
-        STATUS_FLUXO[1]: (col2, "Em costura"),
-        STATUS_FLUXO[2]: (col3, "Acabamento"),
-        STATUS_FLUXO[3]: (col4, "Prontos"),
-    }
+    html = []
+    html.append('<div class="dash-lite"><div class="container">')
+    html.append(
+        f"""
+        <div class="card destaque">
+          <span class="label">Pecas finalizadas hoje</span>
+          <h1>{prod_hoje}</h1>
+        </div>
+        """
+    )
+    html.append(
+        f"""
+        <div class="card">
+          <p><b>Pedidos em aberto:</b> {pedidos_abertos}</p>
+          <p><b>Pedidos finalizados:</b> {pedidos_finalizados}</p>
+          <p><b>Pecas em aberto:</b> {pecas_em_aberto}</p>
+          <p style="font-size:12px; color:#64748b;">Atualizado: {agora}</p>
+          <p style="font-size:12px; color:#64748b;">Fonte: {'Firebase' if firebase_store.is_enabled() else 'CSV local'}</p>
+        </div>
+        """
+    )
 
-    for status_chave, (coluna_st, titulo_visual) in fases.items():
-        with coluna_st:
-            status_norm = df_atual["Status"].astype(str).str.strip().str.lower()
-            pedidos_fase = df_atual[status_norm == str(status_chave).strip().lower()]
-            total_pedidos_etapa = int(pedidos_fase["Pedido"].nunique()) if not pedidos_fase.empty else 0
-            st.markdown(
+    html.append('<div class="section"><h2>Etapas em andamento</h2>')
+    etapa_cards = []
+    etapa_pedidos = []
+    for status_chave, titulo_visual in etapas:
+        pedidos_fase = df_atual[status_norm == str(status_chave).strip().lower()]
+        total_pedidos_etapa = int(pedidos_fase["Pedido"].nunique()) if not pedidos_fase.empty else 0
+        pecas_etapa = int(pedidos_fase["Qtd"].sum()) if not pedidos_fase.empty else 0
+        etapa_cards.append(
+            f"""
+            <div class="card etapa">
+              <div class="etapa-header">
+                <span>{titulo_visual}</span>
+                <span class="badge">{total_pedidos_etapa}</span>
+              </div>
+              <small>{pecas_etapa} pecas nesta etapa</small>
+            </div>
+            """
+        )
+
+        pedidos_html = []
+        for pedido_id in sorted(pedidos_fase["Pedido"].unique())[:10]:
+            grupo = pedidos_fase[pedidos_fase["Pedido"] == pedido_id]
+            principal = grupo.iloc[0]
+            cliente_info = str(principal.get("Cliente", "-")).strip() or "-"
+            num_info = str(principal.get("NumeroCliente", "-")).strip() or "-"
+            responsavel_lancamento = str(principal.get("ResponsavelLancamento", "")).strip() or "-"
+            prazo_dias = dias_para_prazo(principal.get("PrazoFinalizacao", ""))
+            if prazo_dias is None:
+                prazo_cls = "warn"
+                prazo_txt = "-"
+            elif prazo_dias >= 3:
+                prazo_cls = "ok"
+                prazo_txt = f"{prazo_dias} dia(s)"
+            elif prazo_dias >= 1:
+                prazo_cls = "warn"
+                prazo_txt = f"{prazo_dias} dia(s)"
+            else:
+                prazo_cls = "late"
+                prazo_txt = f"{prazo_dias} dia(s)"
+
+            pedidos_html.append(
                 f"""
-                <div class="dash2-stage">
-                  <div class="dash2-stage-head">
-                    <span class="dash2-stage-title">{titulo_visual}</span>
-                    <span class="dash2-stage-count">{total_pedidos_etapa}</span>
-                  </div>
-                  <div class="dash2-stage-body"></div>
+                <div class="card pedido">
+                  <p><strong>Cliente:</strong> {cliente_info}</p>
+                  <p class="prazo {prazo_cls}">Prazo: {prazo_txt}</p>
+                  <p><strong>Lancado por:</strong> {responsavel_lancamento}</p>
+                  <p><strong>Num:</strong> {num_info}</p>
+                  
                 </div>
-                """,
-                unsafe_allow_html=True,
+                """
             )
-            if total_pedidos_etapa == 0:
-                st.caption("Sem pedidos nesta etapa.")
-                continue
 
-            pecas_etapa = int(pedidos_fase["Qtd"].sum()) if not pedidos_fase.empty else 0
-            st.caption(f"{pecas_etapa} peca(s) nesta etapa")
-            for pedido_id in sorted(pedidos_fase["Pedido"].unique())[:10]:
-                grupo = pedidos_fase[pedidos_fase["Pedido"] == pedido_id]
-                principal = grupo.iloc[0]
-                total_grades = int(sum(total_grades_row(r) for _, r in grupo.iterrows()))
-                total_pecas = int(grupo["Qtd"].sum())
-                titulo_cliente = str(principal["Cliente"]).strip() or f"Pedido #{pedido_id}"
-                prazo_txt = prazo_legivel(principal.get("PrazoFinalizacao", ""))
-                responsavel_lancamento = str(principal.get("ResponsavelLancamento", "")).strip() or "-"
-                cliente_info = str(principal.get("Cliente", "-")).strip() or "-"
-                num_info = str(principal.get("NumeroCliente", "-")).strip() or "-"
-                obs_info = observacao_legivel(principal.get("Observacao", ""))
+        etapa_pedidos.append(
+            f"""
+            <div class="etapa-col">
+              <h3>{titulo_visual}</h3>
+              {''.join(pedidos_html) if pedidos_html else '<p class="empty">Sem pedidos nesta etapa.</p>'}
+            </div>
+            """
+        )
 
-                prazo_badge = badge_prazo(principal.get("PrazoFinalizacao", ""))
-                st.markdown(
-                    f"**Cliente:** {cliente_info}  |  {prazo_badge}  |  "
-                    f"**Lancado por:** {responsavel_lancamento}  |  **Num:** {num_info}",
-                    unsafe_allow_html=True,
-                )
-                if obs_info:
-                    st.markdown(f"**Observacao:** {obs_info}")
-
-                titulo_dash = f"{titulo_cliente} | Num {num_info}"
-                with st.expander(titulo_dash, expanded=True):
-                    card = st.container(border=True)
-                    card.markdown(f"**Pedido #{pedido_id}**")
-                    card.caption(f"Lancado por: {responsavel_lancamento}")
-                    card.caption(f"Cliente: {principal['Cliente']}")
-                    card.caption(f"Numero: {num_info}")
-                    if obs_info:
-                        card.caption(f"Observacao: {obs_info}")
-                    card.caption(f"{len(grupo)} modelo(s) | {total_grades} grade(s) | {total_pecas} peca(s)")
-                    card.progress(progresso_status(status_chave))
-                    card.caption(f"Entrada: {principal['Entrada']}")
-                    card.markdown(f"{prazo_badge}", unsafe_allow_html=True)
-                    if pedido_vencido(grupo):
-                        card.error("Prazo vencido para finalizar este pedido.")
-
-                    card.markdown("**Modelos:**")
-                    for _, item in grupo.iterrows():
-                        model_cols = card.columns([5, 1])
-                        model_cols[0].markdown(f"**{item['Modelo']}**")
-                        for linha_cor in linhas_cores(item):
-                            card.caption(linha_cor)
-                        card.caption(f"Total: {total_grades_row(item)} grade(s) | {int(item['Qtd'])} peca(s)")
+    html.append('<div class="etapas-grid">')
+    html.append("\n".join(etapa_cards))
+    html.append("</div>")
+    html.append('<div class="etapas-pedidos">')
+    html.append("\n".join(etapa_pedidos))
+    html.append("</div>")
+    html.append("</div></div>")
+    html_out = textwrap.dedent("\n".join(html)).strip()
+    css = """
+    <style>
+      body { font-family: 'Segoe UI', sans-serif; background: #f4f6f9; margin: 0; padding: 16px; color: #1f2937; }
+      .dash-lite .container { max-width: 720px; margin: auto; }
+      .dash-lite .card { background: #ffffff; border-radius: 16px; padding: 16px; margin-bottom: 16px; box-shadow: 0 4px 12px rgba(0,0,0,0.06); border: 1px solid #e5ecf6; }
+      .dash-lite .label { font-size: 12px; color: #64748b; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; }
+      .dash-lite .destaque { border-left: 6px solid #3b82f6; }
+      .dash-lite .destaque h1 { margin: 6px 0 0 0; font-size: 32px; }
+      .dash-lite .section h2 { font-size: 18px; margin: 4px 0 10px 0; }
+      .dash-lite .etapas-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+      .dash-lite .etapas-pedidos { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-top: 12px; }
+      .dash-lite .etapa-col h3 { font-size: 16px; margin: 8px 0 10px 0; color: #1f2a44; }
+      .dash-lite .empty { color: #94a3b8; font-size: 12px; margin: 6px 0 0 0; }
+      @media (max-width: 1100px) { .dash-lite .etapas-grid { grid-template-columns: repeat(2, 1fr); } }
+      @media (max-width: 1100px) { .dash-lite .etapas-pedidos { grid-template-columns: repeat(2, 1fr); } }
+      @media (max-width: 700px) { .dash-lite .etapas-grid { grid-template-columns: 1fr; } }
+      @media (max-width: 700px) { .dash-lite .etapas-pedidos { grid-template-columns: 1fr; } }
+      .dash-lite .etapa-header { display: flex; justify-content: space-between; align-items: center; font-weight: 700; }
+      .dash-lite .badge { background: #3b82f6; color: #fff; padding: 4px 10px; border-radius: 999px; font-size: 12px; }
+      .dash-lite .pedido p { margin: 4px 0; }
+      .dash-lite .prazo.ok { color: #1f9d55; font-weight: 800; }
+      .dash-lite .prazo.warn { color: #d97706; font-weight: 800; }
+      .dash-lite .prazo.late { color: #dc2626; font-weight: 800; }
+      .dash-lite .pedido-item { margin-top: 10px; background: #f9fafb; padding: 10px; border-radius: 10px; border: 1px solid #e5e7eb; }
+    </style>
+    """
+    components.html(css + html_out, height=1200, scrolling=True)
 
 
 def render_dashboard_visual(df_atual, eventos):
