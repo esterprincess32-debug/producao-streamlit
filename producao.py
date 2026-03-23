@@ -749,7 +749,7 @@ def texto_maiusculo(valor):
 
 def carregar_usuarios():
     usuarios_padrao = [
-        {"Usuario": "estoque", "SenhaHash": hash_senha("123"), "Perfil": "visualizador", "Ativo": 1},
+        {"Usuario": "estoque", "SenhaHash": hash_senha("123"), "Perfil": "estoque", "Ativo": 1},
         {"Usuario": "vitor", "SenhaHash": hash_senha("1408"), "Perfil": "editor", "Ativo": 1},
         {"Usuario": "lucas_ti", "SenhaHash": hash_senha("Luzineide12."), "Perfil": "editor", "Ativo": 1},
         {"Usuario": "dashboard", "SenhaHash": hash_senha("123"), "Perfil": "dashboard", "Ativo": 1},
@@ -819,7 +819,9 @@ def autenticar(usuario, senha):
     if hit.empty:
         return None
     perfil = str(hit.iloc[0]["Perfil"]).lower()
-    if perfil not in ["editor", "visualizador", "dashboard"]:
+    if u == "estoque":
+        perfil = "estoque"
+    if perfil not in ["editor", "visualizador", "dashboard", "estoque"]:
         perfil = "visualizador"
     return {"usuario": u, "perfil": perfil}
 
@@ -902,7 +904,7 @@ def perfil_atual():
 def pode_lancar_pedido():
     if usuario_somente_visualizacao():
         return False
-    return perfil_atual() in ["editor", "visualizador"]
+    return perfil_atual() in ["editor", "visualizador", "estoque"]
 
 
 def pode_editar_completo():
@@ -915,6 +917,8 @@ def pode_mover_pronto(status_atual):
     if usuario_somente_visualizacao():
         return False
     if perfil_atual() == "editor":
+        return True
+    if perfil_atual() == "estoque":
         return True
     return perfil_atual() == "visualizador" and str(status_atual) == STATUS_FLUXO[0]
 
@@ -1155,6 +1159,16 @@ def observacao_legivel(valor):
     return txt
 
 
+def is_obs_only(grupo):
+    if grupo is None or len(grupo) == 0:
+        return False
+    modelos = grupo["Modelo"].astype(str).str.strip().str.upper()
+    if not (modelos == "OBSERVACAO").all():
+        return False
+    grades_sum = int(sum(total_grades_row(r) for _, r in grupo.iterrows()))
+    return grades_sum == 0
+
+
 def pedido_vencido(grupo):
     if grupo.empty:
         return False
@@ -1272,7 +1286,7 @@ def deletar_modelo(id_modelo):
     st.rerun()
 
 
-def atualizar_modelo(id_modelo, cliente, numero_cliente, observacao, modelo, cores):
+def atualizar_modelo(id_modelo, cliente, numero_cliente, observacao, modelo, cores, qtd_override=None):
     df = carregar_dados()
     linha = df[df["ID"] == id_modelo]
     if linha.empty:
@@ -1280,7 +1294,10 @@ def atualizar_modelo(id_modelo, cliente, numero_cliente, observacao, modelo, cor
     antigo = linha.iloc[0]
     pedido_id = int(antigo["Pedido"])
     total_grades = int(sum(int(v) for v in cores.values()))
-    qtd = total_grades * PECAS_POR_GRADE
+    if qtd_override is not None:
+        qtd = max(0, int(qtd_override))
+    else:
+        qtd = total_grades * PECAS_POR_GRADE
 
     cliente_fmt = texto_maiusculo(cliente)
     numero_cliente_fmt = normalizar_numero_cliente(numero_cliente)
@@ -1615,7 +1632,7 @@ def render_dashboard_visual(df_atual, eventos):
         st.caption(f"Versao dashboard: {versao_data} | {versao_path}")
     except Exception:
         pass
-    if perfil_atual() == "dashboard":
+    if perfil_atual() in ["dashboard", "estoque", "editor"]:
         render_dashboard_detalhado(df_atual, eventos, agora)
         return
     st.markdown(
@@ -1690,6 +1707,8 @@ def render_dashboard_visual(df_atual, eventos):
                 principal = grupo.iloc[0]
                 total_grades = int(sum(total_grades_row(r) for _, r in grupo.iterrows()))
                 total_pecas = int(grupo["Qtd"].sum())
+                obs_only = is_obs_only(grupo)
+                obs_only = is_obs_only(grupo)
                 titulo_cliente = str(principal["Cliente"]).strip() or f"Pedido #{pedido_id}"
                 resumo = f"{total_pecas} peca(s)"
                 anterior = status_anterior(status_chave)
@@ -1737,7 +1756,10 @@ def render_dashboard_visual(df_atual, eventos):
                         card.caption(f"Numero: {num_info}")
                         if obs_info:
                             card.caption(f"Observacao: {obs_info}")
-                        card.caption(f"{len(grupo)} modelo(s) | {total_grades} grade(s) | {total_pecas} peca(s)")
+                        if obs_only:
+                            card.caption(f"Quantidade: {total_pecas} peca(s)")
+                        else:
+                            card.caption(f"{len(grupo)} modelo(s) | {total_grades} grade(s) | {total_pecas} peca(s)")
                         card.progress(progresso_status(status_chave))
                         card.caption(f"Entrada: {principal['Entrada']}")
                         card.markdown(prazo_badge, unsafe_allow_html=True)
@@ -2041,6 +2063,7 @@ def render_operacao(df_atual, eventos):
                 principal = grupo.iloc[0]
                 total_grades = int(sum(total_grades_row(r) for _, r in grupo.iterrows()))
                 total_pecas = int(grupo["Qtd"].sum())
+                obs_only = is_obs_only(grupo)
                 titulo_cliente = str(principal["Cliente"]).strip() or f"Pedido #{pedido_id}"
                 resumo = f"{total_pecas} peca(s)"
                 anterior = status_anterior(status_chave)
@@ -2079,31 +2102,35 @@ def render_operacao(df_atual, eventos):
                         card.caption(f"Lancado por: {responsavel_lancamento}")
                         card.caption(f"Cliente: {principal['Cliente']}")
                         card.caption(f"Numero: {str(principal.get('NumeroCliente', '-')).strip() or '-'}")
-                        observacao_card = str(principal.get("Observacao", "")).strip()
+                        observacao_card = observacao_legivel(principal.get("Observacao", ""))
                         if observacao_card:
                             card.caption(f"Observacao: {observacao_card}")
-                        card.caption(f"{len(grupo)} modelo(s) | {total_grades} grade(s) | {total_pecas} peca(s)")
+                        if obs_only:
+                            card.caption(f"Quantidade: {total_pecas} peca(s)")
+                        else:
+                            card.caption(f"{len(grupo)} modelo(s) | {total_grades} grade(s) | {total_pecas} peca(s)")
                         card.progress(progresso_status(status_chave))
                         card.caption(f"Entrada: {principal['Entrada']}")
                         card.caption(f"Prazo para finalizar: {prazo_legivel(principal.get('PrazoFinalizacao', ''))}")
                         if pedido_vencido(grupo):
                             card.error("Prazo vencido para finalizar este pedido.")
 
-                        card.markdown("**Modelos:**")
-                        for _, item in grupo.iterrows():
-                            item_id = int(item["ID"])
-                            model_cols = card.columns([5, 1])
-                            model_cols[0].markdown(f"**{item['Modelo']}**")
-                            if model_cols[1].button(
-                                "X",
-                                key=f"op_del_model_{item_id}",
-                                help="Excluir modelo",
-                                disabled=not pode_editar,
-                            ):
-                                deletar_modelo(item_id)
-                            for linha_cor in linhas_cores(item):
-                                card.caption(linha_cor)
-                            card.caption(f"Total: {total_grades_row(item)} grade(s) | {int(item['Qtd'])} peca(s)")
+                        if not obs_only:
+                            card.markdown("**Modelos:**")
+                            for _, item in grupo.iterrows():
+                                item_id = int(item["ID"])
+                                model_cols = card.columns([5, 1])
+                                model_cols[0].markdown(f"**{item['Modelo']}**")
+                                if model_cols[1].button(
+                                    "X",
+                                    key=f"op_del_model_{item_id}",
+                                    help="Excluir modelo",
+                                    disabled=not pode_editar,
+                                ):
+                                    deletar_modelo(item_id)
+                                for linha_cor in linhas_cores(item):
+                                    card.caption(linha_cor)
+                                card.caption(f"Total: {total_grades_row(item)} grade(s) | {int(item['Qtd'])} peca(s)")
 
                 with linha_cols[1]:
                     if proximo:
@@ -2181,7 +2208,7 @@ def render_operacao(df_atual, eventos):
                         st.session_state[add_open_key] = not st.session_state[add_open_key]
                         st.session_state[edit_open_key] = False
 
-                    if st.session_state[edit_open_key] and pode_editar:
+                    if st.session_state[edit_open_key] and (pode_editar or obs_only):
                         card.markdown("---")
                         card.markdown("**Editar modelo do pedido**")
                         opcoes_itens = [int(x) for x in grupo["ID"].tolist()]
@@ -2191,7 +2218,7 @@ def render_operacao(df_atual, eventos):
                             options=opcoes_itens,
                             format_func=lambda x: f"#{x} - {mapa_nome.get(x, '')}",
                             key=f"op_edit_select_{pedido_id}",
-                            disabled=not pode_editar,
+                            disabled=not (pode_editar or obs_only),
                         )
                         item_edit = grupo[grupo["ID"] == item_id_edit].iloc[0]
 
@@ -2200,60 +2227,87 @@ def render_operacao(df_atual, eventos):
                                 "Cliente",
                                 value=str(item_edit["Cliente"]),
                                 key=f"op_edit_cliente_{pedido_id}",
-                                disabled=not pode_editar,
+                                disabled=not (pode_editar or obs_only),
                             )
                             edit_numero_cliente = st.text_input(
                                 "Numero do cliente",
                                 value=str(item_edit.get("NumeroCliente", "")),
                                 key=f"op_edit_numero_cliente_{pedido_id}",
-                                disabled=not pode_editar,
+                                disabled=not (pode_editar or obs_only),
                             )
                             edit_observacao = st.text_input(
                                 "Observacao",
                                 value=str(item_edit.get("Observacao", "")),
                                 key=f"op_edit_observacao_{pedido_id}",
-                                disabled=not pode_editar,
+                                disabled=not (pode_editar or obs_only),
                             )
-                            opcoes_modelo_edit = list(MODELOS_DISPONIVEIS)
-                            modelo_atual_edit = texto_maiusculo(str(item_edit["Modelo"]))
-                            if modelo_atual_edit and modelo_atual_edit not in opcoes_modelo_edit:
-                                opcoes_modelo_edit = [modelo_atual_edit] + opcoes_modelo_edit
-                            edit_modelo = st.selectbox(
-                                "Modelo/Grade",
-                                options=opcoes_modelo_edit,
-                                index=opcoes_modelo_edit.index(modelo_atual_edit) if modelo_atual_edit in opcoes_modelo_edit else 0,
-                                key=f"op_edit_modelo_{pedido_id}",
-                                disabled=not pode_editar,
-                            )
-                            edit_cores = {}
-                            cols_edit = st.columns(2)
-                            for i, (nome_cor, coluna_cor) in enumerate(zip(CORES, COLUNAS_CORES)):
-                                edit_cores[coluna_cor] = cols_edit[i % 2].number_input(
-                                    nome_cor,
+                            obs_only_edit = str(item_edit.get("Modelo", "")).strip().upper() == "OBSERVACAO"
+                            if obs_only_edit:
+                                edit_qtd_obs = st.number_input(
+                                    "Quantidade de pecas",
                                     min_value=0,
-                                    value=int(item_edit[coluna_cor]),
+                                    value=int(item_edit.get("Qtd", 0)),
                                     step=1,
-                                    key=f"op_edit_{coluna_cor}_{pedido_id}_{item_id_edit}",
+                                    key=f"op_edit_qtd_obs_{pedido_id}_{item_id_edit}",
+                                    disabled=not (pode_editar or obs_only),
+                                )
+                                salvar_edicao = st.form_submit_button("Salvar alteracoes", disabled=not (pode_editar or obs_only))
+                                if salvar_edicao:
+                                    if not edit_cliente.strip():
+                                        st.warning("Cliente e observacao sao obrigatorios.")
+                                    elif edit_qtd_obs <= 0:
+                                        st.warning("Informe a quantidade de pecas.")
+                                    else:
+                                        atualizar_modelo(
+                                            item_id_edit,
+                                            edit_cliente,
+                                            edit_numero_cliente,
+                                            edit_observacao,
+                                            "OBSERVACAO",
+                                            {c: 0 for c in COLUNAS_CORES},
+                                            qtd_override=edit_qtd_obs,
+                                        )
+                            else:
+                                opcoes_modelo_edit = list(MODELOS_DISPONIVEIS)
+                                modelo_atual_edit = texto_maiusculo(str(item_edit["Modelo"]))
+                                if modelo_atual_edit and modelo_atual_edit not in opcoes_modelo_edit:
+                                    opcoes_modelo_edit = [modelo_atual_edit] + opcoes_modelo_edit
+                                edit_modelo = st.selectbox(
+                                    "Modelo/Grade",
+                                    options=opcoes_modelo_edit,
+                                    index=opcoes_modelo_edit.index(modelo_atual_edit) if modelo_atual_edit in opcoes_modelo_edit else 0,
+                                    key=f"op_edit_modelo_{pedido_id}",
                                     disabled=not pode_editar,
                                 )
-
-                            total_edit_grades = int(sum(edit_cores.values()))
-                            st.caption(f"Novo total: {total_edit_grades} grade(s) = {total_edit_grades * PECAS_POR_GRADE} peca(s)")
-                            salvar_edicao = st.form_submit_button("Salvar alteracoes", disabled=not pode_editar)
-                            if salvar_edicao:
-                                if not edit_cliente.strip() or not edit_modelo.strip():
-                                    st.warning("Cliente e modelo sao obrigatorios.")
-                                elif total_edit_grades <= 0:
-                                    st.warning("Informe ao menos 1 grade para salvar.")
-                                else:
-                                    atualizar_modelo(
-                                        item_id_edit,
-                                        edit_cliente,
-                                        edit_numero_cliente,
-                                        edit_observacao,
-                                        edit_modelo,
-                                        edit_cores,
+                                edit_cores = {}
+                                cols_edit = st.columns(2)
+                                for i, (nome_cor, coluna_cor) in enumerate(zip(CORES, COLUNAS_CORES)):
+                                    edit_cores[coluna_cor] = cols_edit[i % 2].number_input(
+                                        nome_cor,
+                                        min_value=0,
+                                        value=int(item_edit[coluna_cor]),
+                                        step=1,
+                                        key=f"op_edit_{coluna_cor}_{pedido_id}_{item_id_edit}",
+                                        disabled=not pode_editar,
                                     )
+
+                                total_edit_grades = int(sum(edit_cores.values()))
+                                st.caption(f"Novo total: {total_edit_grades} grade(s) = {total_edit_grades * PECAS_POR_GRADE} peca(s)")
+                                salvar_edicao = st.form_submit_button("Salvar alteracoes", disabled=not pode_editar)
+                                if salvar_edicao:
+                                    if not edit_cliente.strip() or not edit_modelo.strip():
+                                        st.warning("Cliente e modelo sao obrigatorios.")
+                                    elif total_edit_grades <= 0:
+                                        st.warning("Informe ao menos 1 grade para salvar.")
+                                    else:
+                                        atualizar_modelo(
+                                            item_id_edit,
+                                            edit_cliente,
+                                            edit_numero_cliente,
+                                            edit_observacao,
+                                            edit_modelo,
+                                            edit_cores,
+                                        )
 
                     if st.session_state[add_open_key] and pode_editar:
                         card.markdown("---")
@@ -2343,7 +2397,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-if perfil_atual() == "dashboard":
+if perfil_atual() in ["dashboard", "estoque", "editor"]:
     aplicar_estilo_dashboard()
 
 with st.sidebar:
@@ -2368,6 +2422,14 @@ with st.sidebar:
                 "Observacao",
                 height=70,
                 key="novo_pedido_observacao",
+                disabled=not pode_lancar,
+            )
+            qtd_obs = st.number_input(
+                "Quantidade de pecas (observacao)",
+                min_value=0,
+                value=0,
+                step=1,
+                key="novo_pedido_qtd_obs",
                 disabled=not pode_lancar,
             )
         qtd_modelos = st.number_input(
@@ -2420,8 +2482,10 @@ with st.sidebar:
     if not somente_visual and st.button("Lancar pedido", disabled=not pode_lancar):
         if not str(cliente).strip():
             st.warning("Preencha o nome do cliente.")
-        elif not modelos_validos:
-            st.warning("Informe ao menos 1 modelo com grades > 0.")
+        elif not modelos_validos and not str(observacao_pedido).strip():
+            st.warning("Informe ao menos 1 modelo com grades > 0 ou preencha a observacao.")
+        elif not modelos_validos and int(qtd_obs) <= 0:
+            st.warning("Informe a quantidade de pecas na observacao.")
         else:
             cliente_fmt = texto_maiusculo(cliente)
             numero_cliente_fmt = normalizar_numero_cliente(numero_cliente)
@@ -2435,6 +2499,15 @@ with st.sidebar:
             novos = []
             qtd_total = 0
             grades_total = 0
+            if not modelos_validos and observacao_fmt:
+                modelos_validos.append(
+                    {
+                        "Modelo": "OBSERVACAO",
+                        "Grades": {c: 0 for c in COLUNAS_CORES},
+                        "Qtd": int(qtd_obs),
+                        "GradesTotal": 0,
+                    }
+                )
             for item in modelos_validos:
                 modelo_fmt = texto_maiusculo(item["Modelo"])
                 novos.append(
@@ -2489,7 +2562,7 @@ eventos = carregar_eventos()
 if perfil_atual() == "dashboard":
     abas_nomes = ["Dashboard"]
 elif perfil_atual() == "estoque":
-    abas_nomes = ["Operacao"]
+    abas_nomes = ["Operacao", "Dashboard"]
 elif somente_visual:
     abas_nomes = ["Dashboard", "Relatorios"]
 else:
@@ -2501,7 +2574,7 @@ mapa_abas = {nome: idx for idx, nome in enumerate(abas_nomes)}
 
 if "Dashboard" in mapa_abas:
     with abas[mapa_abas["Dashboard"]]:
-        if perfil_atual() == "dashboard":
+        if perfil_atual() in ["dashboard", "estoque"]:
             dashboard_live()
         else:
             render_dashboard_visual(df_atual, eventos)
